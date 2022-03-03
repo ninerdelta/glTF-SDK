@@ -4,6 +4,7 @@
 #pragma once
 
 #include <GLTFSDK/ExtensionHandlers.h>
+#include <GLTFSDK/IndexedContainer.h>
 #include <GLTFSDK/Optional.h>
 
 #include <memory>
@@ -93,6 +94,59 @@ namespace Microsoft
 
                 std::string SerializeTextureTransform(const TextureTransform& textureTransform, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer);
                 std::unique_ptr<Extension> DeserializeTextureTransform(const std::string& json, const ExtensionDeserializer& extensionDeserializer);
+            }
+
+            // TODO (matt): go look at some implementations
+            // NOTE (matt): there are some shared properties and some light specific
+            // REFERENCE: https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_lights_punctual/README.md
+            namespace Lights
+            {
+                constexpr const char* LIGHTSPUNCTUAL_NAME = "KHR_lights_punctual";
+
+                struct Punctual : Extension, glTFChildOfRootProperty
+                {
+                    Punctual();
+
+                    enum LightType
+                    {
+                        SPOT,
+                        POINT,
+                        DIRECTIONAL
+                    };
+
+                    struct Node : glTFProperty
+                    {
+                        std::string light;
+                    };
+
+                    std::string type; // required 
+                    std::string name;
+                    Color3 color;
+                    float intensity;
+                    float range;
+                    // required for spot light
+                    float innerConeAngle;
+                    float outerConeAngle;
+
+                    std::unique_ptr<Extension> Clone() const override;
+                    bool IsEqual(const Extension& rhs) const override;
+
+                    LightType GetLightType() const
+                    {
+                        if(type == "spot") return SPOT;
+                        if(type == "directional") return DIRECTIONAL;
+                        return POINT;
+                    }
+                };
+
+                // Note (matt): this is to be the thing to serialize at the document level
+                struct LightExtension
+                {
+                    IndexedContainer<const Punctual> lights;
+                };
+
+                std::string SerializeLights(const LightExtension& lightExt, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer);
+                std::string SerializeForNode(const Punctual::Node& lightNode, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer);
             }
         }
     }

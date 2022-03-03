@@ -533,3 +533,125 @@ std::unique_ptr<Extension> KHR::TextureInfos::DeserializeTextureTransform(const 
 
     return std::make_unique<TextureTransform>(textureTransform);
 }
+
+KHR::Lights::Punctual::Punctual() : type{"point"}, name{""}, color{1.0f, 1.0f, 1.0f}, intensity{1.0f}, range{0}, innerConeAngle{-1.0f}, outerConeAngle{-1.0f}
+{
+}
+
+std::unique_ptr<Extension> KHR::Lights::Punctual::Clone() const
+{
+    return std::make_unique<Punctual>(*this);
+}
+
+bool KHR::Lights::Punctual::IsEqual(const Extension& rhs) const
+{
+    const auto other = dynamic_cast<const Punctual*>(&rhs);
+
+    // TODO (matt): add more logic
+    return other != nullptr
+        && glTFProperty::Equals(*this, *other)
+        && this->type == other->type;
+}
+
+// NOTE (matt): when serializing -- skip optionals. Fill in defaults on deserialize
+rapidjson::Value SerializePunctual(const KHR::Lights::Punctual& light, const Document& gltfDocument, rapidjson::Document& document, const ExtensionSerializer& extensionSerializer)
+{
+    rapidjson::Document::AllocatorType& a = document.GetAllocator();
+
+    rapidjson::Value lightValue(rapidjson::kObjectType);
+
+    // TODO (matt): there are specific types -- need to do some handling
+    // around that
+    // TODO (matt): THESE ARE REQUIRED
+    if (light.GetLightType() == KHR::Lights::Punctual::LightType::POINT)
+    {
+        lightValue.AddMember("type", "point", a);
+    }
+    else if(light.GetLightType() == KHR::Lights::Punctual::LightType::SPOT)
+    {
+        lightValue.AddMember("type", "spot", a);
+    }
+    else if(light.GetLightType() == KHR::Lights::Punctual::LightType::DIRECTIONAL)
+    {
+        lightValue.AddMember("type", "directional", a);
+    }
+
+    RapidJsonUtils::AddOptionalMember("name", lightValue, light.name, a);
+
+    if(light.intensity > 0)
+    {
+        lightValue.AddMember("intensity", light.intensity, a);
+    }
+
+    if(light.color != Color3{1.0f, 1.0f, 1.0f})
+    {
+        lightValue.AddMember("color", RapidJsonUtils::ToJsonArray(light.color, a), a);
+    }
+
+    if(light.range > 0)
+    {
+        lightValue.AddMember("range", light.range, a);
+    }
+
+    // TODO: some handling over the max limit of outer cone angle (pi/4)
+    if(light.innerConeAngle >= 0 && light.outerConeAngle > light.innerConeAngle)
+    {
+        rapidjson::Value spotValues(rapidjson::kObjectType);
+        spotValues.AddMember("innerConeAngle", light.outerConeAngle, a);
+        spotValues.AddMember("outerConeAngle", light.outerConeAngle, a);
+        lightValue.AddMember("spot", spotValues, a);
+    }
+
+    SerializeProperty(gltfDocument, light, lightValue, a, extensionSerializer);
+
+    return lightValue;
+}
+
+// HAX (matt): just serialize the node info RN
+std::string KHR::Lights::SerializeLights(const LightExtension& lightExt, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer)
+{
+    // TODO (matt): have to add the nodes to the document as well as lights at document level
+    // NOTE (matt): document is const -- can't auto add!
+    rapidjson::Document doc;
+    auto& a = doc.GetAllocator();
+    rapidjson::Value KHR_lights_punctual(rapidjson::kObjectType);
+    {
+        // NOTE: seems like we could leverage existing SerializeIndexedContainer...
+        if(lightExt.lights.Size() > 0)
+        {
+            rapidjson::Value lightsArray(rapidjson::kArrayType);
+            for(const auto& light : lightExt.lights.Elements())
+            {
+                rapidjson::Value value = SerializePunctual(light, gltfDocument, doc, extensionSerializer);
+                lightsArray.PushBack(value, a);
+            }
+
+            KHR_lights_punctual.AddMember("lights", lightsArray, a);
+        }
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    KHR_lights_punctual.Accept(writer);
+    return buffer.GetString();
+}
+
+std::string KHR::Lights::SerializeForNode(const Punctual::Node& lightNode, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer)
+{
+    rapidjson::Document doc;
+    auto& a = doc.GetAllocator();
+    rapidjson::Value KHR_lights_punctual(rapidjson::kObjectType);
+    {
+        if(!lightNode.light.empty())
+        {
+            KHR_lights_punctual.AddMember("light", RapidJsonUtils::ToStringRef(lightNode.light), a);
+        }
+
+        SerializeProperty(gltfDocument, lightNode, KHR_lights_punctual, a, extensionSerializer);
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    KHR_lights_punctual.Accept(writer);
+    return buffer.GetString();
+}
