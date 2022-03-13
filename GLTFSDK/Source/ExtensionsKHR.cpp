@@ -154,6 +154,8 @@ ExtensionDeserializer KHR::GetKHRExtensionDeserializer()
     extensionDeserializer.AddHandler<TextureTransform, TextureInfo>(TEXTURETRANSFORM_NAME, DeserializeTextureTransform);
     extensionDeserializer.AddHandler<TextureTransform, Material::NormalTextureInfo>(TEXTURETRANSFORM_NAME, DeserializeTextureTransform);
     extensionDeserializer.AddHandler<TextureTransform, Material::OcclusionTextureInfo>(TEXTURETRANSFORM_NAME, DeserializeTextureTransform);
+    extensionDeserializer.AddHandler<Lights::Punctual, Document>(Lights::LIGHTSPUNCTUAL_NAME, Lights::DeserializeLight);
+    extensionDeserializer.AddHandler<Lights::Punctual::Node, Node>(Lights::LIGHTSPUNCTUAL_NAME, Lights::DeserializeLightNode);
     return extensionDeserializer;
 }
 
@@ -553,6 +555,52 @@ bool KHR::Lights::Punctual::IsEqual(const Extension& rhs) const
         && this->type == other->type;
 }
 
+std::unique_ptr<Extension> KHR::Lights::Punctual::Node::Clone() const
+{
+    return std::make_unique<Punctual::Node>(*this);
+}
+
+bool KHR::Lights::Punctual::Node::IsEqual(const Extension &rhs) const
+{
+    const auto other = dynamic_cast<const Punctual::Node *>(&rhs);
+
+    // TODO (matt): add more logic
+    return other != nullptr && glTFProperty::Equals(*this, *other) && this->light == other->light;
+}
+
+std::unique_ptr<Extension> KHR::Lights::LightExtension::Clone() const
+{
+    return std::make_unique<LightExtension>(*this);
+}
+
+bool KHR::Lights::LightExtension::IsEqual(const Extension &rhs) const
+{
+    const auto other = dynamic_cast<const LightExtension *>(&rhs);
+
+    // TODO (matt): add more logic
+    return other != nullptr && glTFProperty::Equals(*this, *other) && this->hax == other->hax;
+}
+
+KHR::Lights::Punctual ParseLight(const rapidjson::Value &v, const ExtensionDeserializer &extensionDeserializer)
+{
+    KHR::Lights::Punctual light;
+
+    light.type = GetMemberValueOrDefault<std::string>(v, "type");
+    light.intensity = GetMemberValueOrDefault<float>(v, "intensity");
+    light.range = GetMemberValueOrDefault<float>(v, "range");
+
+    auto spot_it = v.FindMember("spot");
+    if(spot_it != v.MemberEnd())
+    {
+        light.outerConeAngle = GetMemberValueOrDefault<float>(v, "outerConeAngle");
+        light.innerConeAngle = GetMemberValueOrDefault<float>(v, "innerConeAngle");
+    }
+
+    ParseProperty(v, light, extensionDeserializer);
+
+    return light;
+}
+
 // NOTE (matt): when serializing -- skip optionals. Fill in defaults on deserialize
 rapidjson::Value SerializePunctual(const KHR::Lights::Punctual& light, const Document& gltfDocument, rapidjson::Document& document, const ExtensionSerializer& extensionSerializer)
 {
@@ -654,4 +702,74 @@ std::string KHR::Lights::SerializeForNode(const Punctual::Node& lightNode, const
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     KHR_lights_punctual.Accept(writer);
     return buffer.GetString();
+}
+
+std::unique_ptr<Extension> KHR::Lights::DeserializeLight(const std::string& json, const ExtensionDeserializer& extensionDeserializer)
+{
+    // Lights::Punctual lights;
+    Lights::LightExtension lights;
+
+    auto doc = RapidJsonUtils::CreateDocumentFromString(json);
+    const rapidjson::Value sit = doc.GetObject();
+
+    rapidjson::Value::ConstMemberIterator it;
+    if (TryFindMember("lights", sit, it))
+    {
+        size_t index = 0;
+        for (auto &valueArray : it->value.GetArray())
+        {
+            try
+            {
+                const auto &item = lights.lights.Append(ParseLight(valueArray, extensionDeserializer), AppendIdPolicy::GenerateOnEmpty);
+                const auto &itemId = item.id;
+
+                (void)itemId; // To disable unused-variable warnings when assert is compiled away.
+                assert(itemId == std::to_string(index));
+            }
+            catch (const InvalidGLTFException &e)
+            {
+                // std::cerr << "Could not parse " << "[" << index << "]: " << e.what() << "\n";
+                throw;
+            }
+
+            ++index;
+        }
+    }
+
+    // auto light_array = sit.FindMember("lights");
+    // if(light_array != sit.MemberEnd())
+    // {
+    //     if(!light_array->value.IsArray())
+    //     {
+    //         throw GLTFException("Lights should be an array");
+    //     }
+
+    //     size_t index = 0;
+
+    //     // copying deserialize container since I am not leveraging it rn
+    //     for (auto &value_array : light_array->value.GetArray())
+    //     {
+    //         const auto &item = lights.lights.Append(ParseLight(value_array, extensionDeserializer), AppendIdPolicy::GenerateOnEmpty);
+    //         const auto &itemId = item.id;
+
+    //         (void)itemId; // To disable unused-variable warnings when assert is compiled away.
+    //         assert(itemId == std::to_string(index));
+
+    //         ++index;
+    //     }
+    // }
+
+    return std::make_unique<LightExtension>(lights);
+}
+
+std::unique_ptr<Extension> KHR::Lights::DeserializeLightNode(const std::string& json, const ExtensionDeserializer& extensionDeserializer)
+{
+    Lights::Punctual::Node node;
+
+    auto doc = RapidJsonUtils::CreateDocumentFromString(json);
+    const rapidjson::Value sit = doc.GetObject();
+    
+    node.light = GetMemberValueOrDefault<std::string>(sit, "light");;
+
+    return std::make_unique<Punctual::Node>(node);
 }

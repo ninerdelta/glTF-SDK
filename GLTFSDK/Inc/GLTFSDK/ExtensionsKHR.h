@@ -114,9 +114,12 @@ namespace Microsoft
                         DIRECTIONAL
                     };
 
-                    struct Node : glTFProperty
+                    struct Node : Extension, glTFProperty
                     {
+                        Node() : Extension(), glTFProperty(), light("") {}
                         std::string light;
+                        std::unique_ptr<Extension> Clone() const override;
+                        bool IsEqual(const Extension &rhs) const override;
                     };
 
                     std::string type; // required 
@@ -140,13 +143,22 @@ namespace Microsoft
                 };
 
                 // Note (matt): this is to be the thing to serialize at the document level
-                struct LightExtension
+                // need to get this working...
+                struct LightExtension : Extension, glTFProperty
                 {
+                    std::string hax;
                     IndexedContainer<const Punctual> lights;
+
+                    std::unique_ptr<Extension> Clone() const override;
+                    bool IsEqual(const Extension& rhs) const override;
                 };
 
                 std::string SerializeLights(const LightExtension& lightExt, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer);
                 std::string SerializeForNode(const Punctual::Node& lightNode, const Document& gltfDocument, const ExtensionSerializer& extensionSerializer);
+                // this one is for the document level data
+                std::unique_ptr<Extension> DeserializeLight(const std::string& json, const ExtensionDeserializer& extensionDeserializer);
+                // this one is for the node level data (matrix, index into light array)
+                std::unique_ptr<Extension> DeserializeLightNode(const std::string& json, const ExtensionDeserializer& extensionDeserializer);
             }
         }
     }
